@@ -56,10 +56,15 @@ button{font:inherit;border:0;cursor:pointer;color:var(--ink)}
 .pick .gp{font-weight:800;font-size:16px;color:var(--grn)}
 .pick .ab{font-size:13px;color:var(--mute)}
 .toast{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;z-index:40;display:none}
+.day{font-size:12px;font-weight:700;color:var(--mute);padding:10px 14px 4px;background:var(--bg);text-transform:uppercase;letter-spacing:.06em}
+.w{color:var(--grn);font-weight:700}.l{color:var(--red);font-weight:700}
+input[type=number],input[type=datetime-local]{font:inherit;width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.brow{display:grid;grid-template-columns:1.1fr 1fr .8fr .8fr;gap:6px;align-items:center;margin-bottom:8px}
+.bh{font-size:11px;color:var(--mute);text-transform:uppercase}
 </style>
 </head>
 <body>
-<header><h1><span>UNO</span>Scores</h1><span id="sync" title="Sync status" style="margin-left:auto;margin-right:10px;font-size:14px;color:#9a9aa2">●</span><button class="btn" id="bShare">Share</button></header>
+<header><h1><span>UNO</span>Scores</h1><span id="sync" title="Sync status" style="margin-left:auto;margin-right:10px;font-size:14px;color:#9a9aa2">●</span><button class="btn" id="bBase" aria-label="Starting scores" title="Starting scores" style="margin-right:6px">⚙</button><button class="btn" id="bShare">Share</button></header>
 <h2>Leaderboard</h2>
 <div class="card" id="board"></div>
 <h2>Rounds</h2>
@@ -71,6 +76,7 @@ button{font:inherit;border:0;cursor:pointer;color:var(--ink)}
 <h3 id="eTitle">New round</h3>
 <p class="hint">Tap players in finishing order (1st → last). Don’t tap anyone who is absent.</p>
 <div id="picks"></div>
+<label class="hint" style="display:block;margin:6px 0 4px">Date and time</label><input type="datetime-local" id="eWhen" style="margin-bottom:10px">
 <div class="btns"><button class="btn" id="eCancel">Cancel</button><button class="btn pri" id="eSave">Save round</button></div>
 </div></div>
 
@@ -82,6 +88,14 @@ button{font:inherit;border:0;cursor:pointer;color:var(--ink)}
 <a class="btn" id="sWa" target="_blank" rel="noopener" style="text-decoration:none;text-align:center;color:var(--ink)">Send text via WhatsApp</a>
 <button class="btn" id="sTxt">Share / copy text</button>
 <button class="btn" id="sClose">Close</button></div>
+</div></div>
+
+<div class="sheet" id="bsheet"><div class="panel">
+<h3>Starting scores</h3>
+<p class="hint">Scores from before the app. They are added to the new rounds.</p>
+<div class="brow"><span></span><span class="bh">Points</span><span class="bh">Wins</span><span class="bh">Losses</span></div>
+<div id="bRows"></div>
+<div class="btns"><button class="btn" id="bCancel">Cancel</button><button class="btn pri" id="bSave">Save</button></div>
 </div></div>
 
 <div class="sheet" id="conf"><div class="panel">
@@ -97,10 +111,12 @@ const T5=[10,7,5,3,0],T4=[10,7,5,0],ABS=3,KEY="uno-scores-v1";
 const DB="https://uno-scores-3b1a7-default-rtdb.europe-west1.firebasedatabase.app/"; // <-- put your Firebase URL here (no trailing slash)
 let rounds=[];
 try{rounds=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){}
-const cache=()=>{try{localStorage.setItem(KEY,JSON.stringify(rounds))}catch(e){}};
+let base={};try{base=JSON.parse(localStorage.getItem(KEY+"b")||"{}")}catch(e){}
+const cache=()=>{try{localStorage.setItem(KEY,JSON.stringify(rounds));localStorage.setItem(KEY+"b",JSON.stringify(base))}catch(e){}};
 const setSync=ok=>{const d=document.getElementById("sync");if(d)d.style.color=ok?"#2a9d4a":"#d72e2e"};
 async function pull(){
   try{const r=await fetch(DB+"/rounds.json");if(!r.ok)throw 0;const o=await r.json()||{};
+    const b=await fetch(DB+"/base.json").catch(()=>null);if(b&&b.ok)base=await b.json()||{};
     rounds=Object.entries(o).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts);cache();render();setSync(true)}
   catch(e){setSync(false)}}
 async function api(method,path,body){
@@ -117,19 +133,23 @@ function pointsOf(order){ // order: finishing order array
   order.forEach((n,i)=>p[n]=t[i]);
   return p;
 }
+const fmtDay=t=>new Date(t).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
+const fmtTime=t=>new Date(t).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+const loc=t=>new Date(t-new Date(t).getTimezoneOffset()*60000).toISOString().slice(0,16);
 function totals(){
-  const s={};PLAYERS.forEach(n=>s[n]={n,pts:0,played:0,wins:0});
-  rounds.forEach(r=>{const p=pointsOf(r.order);
-    PLAYERS.forEach(n=>{s[n].pts+=p[n];if(r.order.includes(n))s[n].played++});
-    s[r.order[0]].wins++});
+  const s={};PLAYERS.forEach(n=>{const b=base[n]||{};s[n]={n,pts:b.pts||0,wins:b.wins||0,losses:b.losses||0}});
+  rounds.forEach(r=>{const p=pointsOf(r.order);PLAYERS.forEach(n=>s[n].pts+=p[n]);
+    s[r.order[0]].wins++;s[r.order[r.order.length-1]].losses++});
   return Object.values(s).sort((a,b)=>b.pts-a.pts||b.wins-a.wins||PLAYERS.indexOf(a.n)-PLAYERS.indexOf(b.n));
 }
 function render(){
   const t=totals();
-  $("board").innerHTML=t.map((x,i)=>`<div class="row ${i==0&&x.pts>0?"top":""}"><div class="pos">${medal(i)}</div><div class="name">${x.n}<div class="sub">${x.played} played · ${x.wins} win${x.wins==1?"":"s"}</div></div><div class="pts">${x.pts}</div></div>`).join("");
-  $("rounds").innerHTML=rounds.length?rounds.slice().reverse().map((r,k)=>{const idx=rounds.length-1-k,p=pointsOf(r.order);
+  $("board").innerHTML=t.map((x,i)=>`<div class="row ${i==0&&x.pts>0?"top":""}"><div class="pos">${medal(i)}</div><div class="name">${x.n}<div class="sub"><span class="w">${x.wins} W</span> · <span class="l">${x.losses} L</span></div></div><div class="pts">${x.pts}</div></div>`).join("");
+  let last="";
+  $("rounds").innerHTML=rounds.length?rounds.map((r,idx)=>({r,idx})).reverse().map(({r,idx})=>{
+    const p=pointsOf(r.order),d=fmtDay(r.ts),h=d!==last?`<div class="day">${d}</div>`:"";last=d;
     const chips=PLAYERS.slice().sort((a,b)=>p[b]-p[a]).map(n=>`<span class="chip">${n} <b>+${p[n]}</b>${r.order.includes(n)?"":" (absent)"}</span>`).join("");
-    return `<div class="round"><div class="rh"><span>Round ${idx+1} · ${r.order[0]} won</span><span><button data-e="${idx}">Edit</button><button class="del" data-d="${idx}">Delete</button></span></div><div class="chips">${chips}</div></div>`}).join(""):`<div class="empty">No rounds yet.<br>Tap “New round” to start.</div>`;
+    return h+`<div class="round"><div class="rh"><span>#${idx+1} · ${fmtTime(r.ts)} · 🏆 ${r.order[0]} · 💀 ${r.order[r.order.length-1]}</span><span><button data-e="${idx}">Edit</button><button class="del" data-d="${idx}">Delete</button></span></div><div class="chips">${chips}</div></div>`}).join(""):`<div class="empty">No rounds yet.<br>Tap “New round” to start.</div>`;
 }
 $("rounds").onclick=e=>{const b=e.target.closest("button");if(!b)return;
   if(b.dataset.e!==undefined)openEdit(+b.dataset.e);
@@ -137,7 +157,7 @@ $("rounds").onclick=e=>{const b=e.target.closest("button");if(!b)return;
 
 /* edit sheet */
 let order=[],editing=-1;
-function openEdit(i){editing=i;order=i>=0?rounds[i].order.slice():[];$("eTitle").textContent=i>=0?`Edit round ${i+1}`:"New round";drawPicks();$("edit").classList.add("on")}
+function openEdit(i){editing=i;order=i>=0?rounds[i].order.slice():[];$("eTitle").textContent=i>=0?`Edit round ${i+1}`:"New round";$("eWhen").value=loc(i>=0?rounds[i].ts:Date.now());drawPicks();$("edit").classList.add("on")}
 function drawPicks(){
   const ok=order.length>=4,p=ok?pointsOf(order):null;
   $("picks").innerHTML=PLAYERS.map(n=>{const k=order.indexOf(n);
@@ -150,9 +170,9 @@ $("picks").onclick=e=>{const b=e.target.closest("button");if(!b)return;const n=b
 $("eCancel").onclick=()=>$("edit").classList.remove("on");
 $("eSave").onclick=()=>{
   if(order.length<4){toast("At least 4 players needed");return}
-  const o=order.slice();$("edit").classList.remove("on");toast("Saving…");
-  if(editing>=0)api("PUT","/rounds/"+rounds[editing].id,{ts:rounds[editing].ts,order:o});
-  else api("POST","/rounds",{ts:Date.now(),order:o})};
+  const o=order.slice(),ts=new Date($("eWhen").value).getTime()||Date.now();$("edit").classList.remove("on");toast("Saving…");
+  if(editing>=0)api("PUT","/rounds/"+rounds[editing].id,{ts,order:o});
+  else api("POST","/rounds",{ts,order:o})};
 $("bNew").onclick=()=>openEdit(-1);
 
 /* confirm */
@@ -165,7 +185,7 @@ $("bReset").onclick=()=>ask("Erase all rounds and scores?",()=>api("DELETE","/ro
 /* share */
 function shareText(){
   const t=totals(),d=new Date().toLocaleDateString("en-GB");
-  return `🃏 UNO scores – ${d} (${rounds.length} round${rounds.length==1?"":"s"})\n\n`+t.map((x,i)=>`${["🥇","🥈","🥉"][i]||(i+1)+"."} ${x.n} – ${x.pts} pts`).join("\n");
+  return `🃏 UNO scores – ${d} (${rounds.length} round${rounds.length==1?"":"s"})\n\n`+t.map((x,i)=>`${["🥇","🥈","🥉"][i]||(i+1)+"."} ${x.n} – ${x.pts} pts (${x.wins}W/${x.losses}L)`).join("\n");
 }
 function makeImage(){
   const t=totals(),W=1080,H=380+t.length*130,c=document.createElement("canvas");c.width=W;c.height=H;const x=c.getContext("2d");
@@ -193,6 +213,11 @@ $("sTxt").onclick=async()=>{
     await navigator.clipboard.writeText(shareText());toast("Copied")}
   catch(e){if(e.name!=="AbortError")toast("Could not share")}};
 function toast(m){const t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",1800)}
+$("bBase").onclick=()=>{$("bRows").innerHTML=PLAYERS.map(n=>{const b=base[n]||{};const f=k=>`<input type="number" inputmode="numeric" data-n="${n}" data-k="${k}" value="${b[k]||0}">`;return `<div class="brow"><b>${n}</b>${f("pts")}${f("wins")}${f("losses")}</div>`}).join("");$("bsheet").classList.add("on")};
+$("bCancel").onclick=()=>$("bsheet").classList.remove("on");
+$("bSave").onclick=()=>{const o={};PLAYERS.forEach(n=>o[n]={pts:0,wins:0,losses:0});
+  document.querySelectorAll("#bRows input").forEach(i=>o[i.dataset.n][i.dataset.k]=parseInt(i.value)||0);
+  $("bsheet").classList.remove("on");toast("Saving…");api("PUT","/base",o)};
 render();pull();
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js");
 </script>
