@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.oulcaid.uno.twa",
+        "sha256_cert_fingerprints": ["AE:EE:43:B1:8D:8A:09:0A:B6:5A:3B:49:BF:56:7E:18:9A:65:96:CC:C6:79:32:88:1E:E9:B3:76:E2:0D:2C:7A"]
+      }
+    }]
