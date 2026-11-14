@@ -59,12 +59,14 @@ button{font:inherit;border:0;cursor:pointer;color:var(--ink)}
 .day{font-size:12px;font-weight:700;color:var(--mute);padding:10px 14px 4px;background:var(--bg);text-transform:uppercase;letter-spacing:.06em}
 .w{color:var(--grn);font-weight:700}.l{color:var(--red);font-weight:700}
 input[type=number],input[type=datetime-local]{font:inherit;width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
-.brow{display:grid;grid-template-columns:1.1fr 1fr .8fr .8fr;gap:6px;align-items:center;margin-bottom:8px}
+.brow{display:grid;grid-template-columns:1.2fr 1fr .8fr .8fr .8fr;gap:6px;align-items:center;margin-bottom:8px}
+.a{color:var(--mute);font-weight:700}
+.brow input{padding:10px 4px;text-align:center}
 .bh{font-size:11px;color:var(--mute);text-transform:uppercase}
 </style>
 </head>
 <body>
-<header><h1><span>UNO</span>Scores</h1><span id="sync" title="Sync status" style="margin-left:auto;margin-right:10px;font-size:14px;color:#9a9aa2">●</span><button class="btn" id="bBase" aria-label="Starting scores" title="Starting scores" style="margin-right:6px">⚙</button><button class="btn" id="bShare">Share</button></header>
+<header><h1><img src="logo.png" alt="Uno Scores" style="height:62px;width:62px;display:block;border-radius:15px"></h1><span id="sync" title="Sync status" style="margin-left:auto;margin-right:10px;font-size:14px;color:#9a9aa2">●</span><button class="btn" id="bBase" aria-label="Starting scores" title="Starting scores" style="margin-right:6px">⚙</button><button class="btn" id="bShare">Share</button></header>
 <h2>Leaderboard</h2>
 <div class="card" id="board"></div>
 <h2>Rounds</h2>
@@ -74,7 +76,7 @@ input[type=number],input[type=datetime-local]{font:inherit;width:100%;padding:10
 
 <div class="sheet" id="edit"><div class="panel">
 <h3 id="eTitle">New round</h3>
-<p class="hint">Tap players in finishing order (1st → last). Don’t tap anyone who is absent.</p>
+<p class="hint">Tap players in finishing order (1st → last). Anyone absent (+3) is simply not tapped. Minimum 3 players.</p>
 <div id="picks"></div>
 <label class="hint" style="display:block;margin:6px 0 4px">Date and time</label><input type="datetime-local" id="eWhen" style="margin-bottom:10px">
 <div class="btns"><button class="btn" id="eCancel">Cancel</button><button class="btn pri" id="eSave">Save round</button></div>
@@ -93,7 +95,7 @@ input[type=number],input[type=datetime-local]{font:inherit;width:100%;padding:10
 <div class="sheet" id="bsheet"><div class="panel">
 <h3>Starting scores</h3>
 <p class="hint">Scores from before the app. They are added to the new rounds.</p>
-<div class="brow"><span></span><span class="bh">Points</span><span class="bh">Wins</span><span class="bh">Losses</span></div>
+<div class="brow"><span></span><span class="bh">Points</span><span class="bh">Wins</span><span class="bh">Losses</span><span class="bh">Abs.</span></div>
 <div id="bRows"></div>
 <div class="btns"><button class="btn" id="bCancel">Cancel</button><button class="btn pri" id="bSave">Save</button></div>
 </div></div>
@@ -106,7 +108,7 @@ input[type=number],input[type=datetime-local]{font:inherit;width:100%;padding:10
 
 <script>
 const PLAYERS=["Hafid","Ali","Khalid","Ahmed","Hassan"];
-const T5=[10,7,5,3,0],T4=[10,7,5,0],ABS=3,KEY="uno-scores-v1";
+const T5=[10,7,5,3,0],T4=[10,7,5,0],ABS=3,MIN=3,KEY="uno-scores-v1";
 /* ===== SHARED SCORES (Firebase Realtime Database, REST) ===== */
 const DB="https://uno-scores-3b1a7-default-rtdb.europe-west1.firebasedatabase.app/"; // <-- put your Firebase URL here (no trailing slash)
 let rounds=[];
@@ -127,24 +129,24 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)pull()});
 const $=id=>document.getElementById(id);
 const medal=i=>["🥇","🥈","🥉"][i]||(i+1);
 
-function pointsOf(order){ // order: finishing order array
-  const t=order.length===5?T5:T4,p={};
-  PLAYERS.forEach(n=>p[n]=order.length===4?ABS:0);
-  order.forEach((n,i)=>p[n]=t[i]);
+function pointsOf(order){ // 1st 10, 2nd 7, 3rd 5, 4th 3, last 0; every absent player +3
+  const n=order.length,p={};
+  PLAYERS.forEach(x=>p[x]=n<5?ABS:0);
+  order.forEach((x,i)=>p[x]=i==n-1?0:T5[i]);
   return p;
 }
 const fmtDay=t=>new Date(t).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
 const fmtTime=t=>new Date(t).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
 const loc=t=>new Date(t-new Date(t).getTimezoneOffset()*60000).toISOString().slice(0,16);
 function totals(){
-  const s={};PLAYERS.forEach(n=>{const b=base[n]||{};s[n]={n,pts:b.pts||0,wins:b.wins||0,losses:b.losses||0}});
-  rounds.forEach(r=>{const p=pointsOf(r.order);PLAYERS.forEach(n=>s[n].pts+=p[n]);
+  const s={};PLAYERS.forEach(n=>{const b=base[n]||{};s[n]={n,pts:b.pts||0,wins:b.wins||0,losses:b.losses||0,abs:b.abs||0}});
+  rounds.forEach(r=>{const p=pointsOf(r.order);PLAYERS.forEach(n=>{s[n].pts+=p[n];if(!r.order.includes(n))s[n].abs++});
     s[r.order[0]].wins++;s[r.order[r.order.length-1]].losses++});
   return Object.values(s).sort((a,b)=>b.pts-a.pts||b.wins-a.wins||PLAYERS.indexOf(a.n)-PLAYERS.indexOf(b.n));
 }
 function render(){
   const t=totals();
-  $("board").innerHTML=t.map((x,i)=>`<div class="row ${i==0&&x.pts>0?"top":""}"><div class="pos">${medal(i)}</div><div class="name">${x.n}<div class="sub"><span class="w">${x.wins} W</span> · <span class="l">${x.losses} L</span></div></div><div class="pts">${x.pts}</div></div>`).join("");
+  $("board").innerHTML=t.map((x,i)=>`<div class="row ${i==0&&x.pts>0?"top":""}"><div class="pos">${medal(i)}</div><div class="name">${x.n}<div class="sub"><span class="w">${x.wins} W</span> · <span class="l">${x.losses} L</span> · <span class="a">${x.abs} Abs</span></div></div><div class="pts">${x.pts}</div></div>`).join("");
   let last="";
   $("rounds").innerHTML=rounds.length?rounds.map((r,idx)=>({r,idx})).reverse().map(({r,idx})=>{
     const p=pointsOf(r.order),d=fmtDay(r.ts),h=d!==last?`<div class="day">${d}</div>`:"";last=d;
@@ -159,9 +161,9 @@ $("rounds").onclick=e=>{const b=e.target.closest("button");if(!b)return;
 let order=[],editing=-1;
 function openEdit(i){editing=i;order=i>=0?rounds[i].order.slice():[];$("eTitle").textContent=i>=0?`Edit round ${i+1}`:"New round";$("eWhen").value=loc(i>=0?rounds[i].ts:Date.now());drawPicks();$("edit").classList.add("on")}
 function drawPicks(){
-  const ok=order.length>=4,p=ok?pointsOf(order):null;
+  const ok=order.length>=MIN,p=ok?pointsOf(order):null;
   $("picks").innerHTML=PLAYERS.map(n=>{const k=order.indexOf(n);
-    const right=k<0?(order.length>=4?`<span class="ab">Absent +${ABS}</span>`:`<span class="ab">tap</span>`):(ok?`<span class="gp">+${p[n]}</span>`:"");
+    const right=k<0?(order.length>=MIN?`<span class="ab">Absent +${ABS}</span>`:`<span class="ab">tap</span>`):(ok?`<span class="gp">+${p[n]}</span>`:"");
     return `<button class="pick ${k>=0?"sel":""}" data-n="${n}"><span class="rk">${k>=0?k+1:""}</span><span class="nm">${n}</span>${right}</button>`}).join("");
   $("eSave").style.opacity=ok?1:.4;
 }
@@ -169,7 +171,7 @@ $("picks").onclick=e=>{const b=e.target.closest("button");if(!b)return;const n=b
   if(k>=0)order.splice(k,1);else order.push(n);drawPicks()};
 $("eCancel").onclick=()=>$("edit").classList.remove("on");
 $("eSave").onclick=()=>{
-  if(order.length<4){toast("At least 4 players needed");return}
+  if(order.length<MIN){toast("At least "+MIN+" players needed");return}
   const o=order.slice(),ts=new Date($("eWhen").value).getTime()||Date.now();$("edit").classList.remove("on");toast("Saving…");
   if(editing>=0)api("PUT","/rounds/"+rounds[editing].id,{ts,order:o});
   else api("POST","/rounds",{ts,order:o})};
@@ -185,7 +187,7 @@ $("bReset").onclick=()=>ask("Erase all rounds and scores?",()=>api("DELETE","/ro
 /* share */
 function shareText(){
   const t=totals(),d=new Date().toLocaleDateString("en-GB");
-  return `🃏 UNO scores – ${d} (${rounds.length} round${rounds.length==1?"":"s"})\n\n`+t.map((x,i)=>`${["🥇","🥈","🥉"][i]||(i+1)+"."} ${x.n} – ${x.pts} pts (${x.wins}W/${x.losses}L)`).join("\n");
+  return `🃏 UNO scores – ${d} (${rounds.length} round${rounds.length==1?"":"s"})\n\n`+t.map((x,i)=>`${["🥇","🥈","🥉"][i]||(i+1)+"."} ${x.n} – ${x.pts} pts (${x.wins}W ${x.losses}L ${x.abs}Abs)`).join("\n");
 }
 function makeImage(){
   const t=totals(),W=1080,H=380+t.length*130,c=document.createElement("canvas");c.width=W;c.height=H;const x=c.getContext("2d");
@@ -213,9 +215,9 @@ $("sTxt").onclick=async()=>{
     await navigator.clipboard.writeText(shareText());toast("Copied")}
   catch(e){if(e.name!=="AbortError")toast("Could not share")}};
 function toast(m){const t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",1800)}
-$("bBase").onclick=()=>{$("bRows").innerHTML=PLAYERS.map(n=>{const b=base[n]||{};const f=k=>`<input type="number" inputmode="numeric" data-n="${n}" data-k="${k}" value="${b[k]||0}">`;return `<div class="brow"><b>${n}</b>${f("pts")}${f("wins")}${f("losses")}</div>`}).join("");$("bsheet").classList.add("on")};
+$("bBase").onclick=()=>{$("bRows").innerHTML=PLAYERS.map(n=>{const b=base[n]||{};const f=k=>`<input type="number" inputmode="numeric" data-n="${n}" data-k="${k}" value="${b[k]||0}">`;return `<div class="brow"><b>${n}</b>${f("pts")}${f("wins")}${f("losses")}${f("abs")}</div>`}).join("");$("bsheet").classList.add("on")};
 $("bCancel").onclick=()=>$("bsheet").classList.remove("on");
-$("bSave").onclick=()=>{const o={};PLAYERS.forEach(n=>o[n]={pts:0,wins:0,losses:0});
+$("bSave").onclick=()=>{const o={};PLAYERS.forEach(n=>o[n]={pts:0,wins:0,losses:0,abs:0});
   document.querySelectorAll("#bRows input").forEach(i=>o[i.dataset.n][i.dataset.k]=parseInt(i.value)||0);
   $("bsheet").classList.remove("on");toast("Saving…");api("PUT","/base",o)};
 render();pull();
